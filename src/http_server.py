@@ -29,10 +29,13 @@ def index():
 
 @blueprint.route("/metrics")
 def metrics():
-    current_app.config["metrics_puller"]()
-    encoder, content_type = choose_encoder(request.headers.get("accept"))
-    output = encoder(current_app.config["registry"])
-    return output, 200, {"Content-Type": content_type}
+    try:
+        current_app.config["metrics_puller"]()
+        encoder, content_type = choose_encoder(request.headers.get("accept"))
+        output = encoder(current_app.config["registry"])
+        return output, 200, {"Content-Type": content_type}
+    except Exception as e:
+        print(e)
 
 
 @blueprint.route("/health")

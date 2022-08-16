@@ -1,8 +1,10 @@
 # pylint: disable=protected-access,,attribute-defined-outside-init
+from datetime import datetime
 import json
 import re
 import sys
 import time
+from urllib.parse import urlparse
 
 from celery import Celery
 from celery.events.state import State  # type: ignore
@@ -10,6 +12,7 @@ from celery.utils import nodesplit  # type: ignore
 from kombu.exceptions import ChannelError  # type: ignore
 from loguru import logger
 from prometheus_client import CollectorRegistry, Counter, Gauge, Histogram
+import redis
 
 from .http_server import start_http_server
 
@@ -89,6 +92,12 @@ class Exporter:  # pylint: disable=too-many-instance-attributes,too-many-branche
             ["hostname"],
             registry=self.registry,
         )
+        self.celery_queue_health = Gauge(
+            "celery_queue_health",
+            "Indicates time delta in seconds to process the queued message and time the message inserted",
+            ["queue_name"],
+            registry=self.registry,
+        )
         self.celery_task_runtime = Histogram(
             "celery_task_runtime",
             "Histogram of task runtime measurements.",
@@ -136,6 +145,16 @@ class Exporter:  # pylint: disable=too-many-instance-attributes,too-many-branche
                 self.celery_active_consumer_count.labels(queue_name=queue).set(
                     consumer_count
                 )
+
+        for key in self.redis_client.scan_iter("digest_msg_qname_*"):
+            queue_dict = self.redis_client.hgetall(key)
+            queue_name = queue_dict.get('q_name')
+            queue_ts = queue_dict.get('ts')
+            if datetime_valid(queue_ts) and queue_name is not None:
+                q_datetime = datetime.fromisoformat(queue_ts)
+                curr_time = datetime.utcnow()
+                delta = curr_time - q_datetime
+                self.celery_queue_health.labels(queue_name=queue_name).set(delta.seconds)
 
     def track_task_event(self, event):
         self.state.event(event)
@@ -198,7 +217,11 @@ class Exporter:  # pylint: disable=too-many-instance-attributes,too-many-branche
     def run(self, click_params):
         logger.remove()
         logger.add(sys.stdout, level=click_params["log_level"])
-        self.app = Celery(broker=click_params["broker_url"])
+        broker_url = click_params["broker_url"]
+        self.app = Celery(broker=broker_url)
+        uri = urlparse(broker_url)
+        self.redis_client = redis.Redis(host=uri.hostname, port=uri.port, password=uri.password, db=15,
+                                        decode_responses=True)
         transport_options = {}
         for transport_option in click_params["broker_transport_option"]:
             if transport_option is not None:
@@ -304,3 +327,13 @@ def transform_option_value(value: str):
         return json.loads(value)
     except ValueError:
         return value
+
+
+def datetime_valid(dt_str):
+    if dt_str is None:
+        return False
+    try:
+        datetime.fromisoformat(dt_str.replace('Z', '+00:00'))
+    except:
+        return False
+    return True

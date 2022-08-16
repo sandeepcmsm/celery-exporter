@@ -2,6 +2,7 @@ import click
 
 # pylint: disable=unused-import
 import pretty_errors  # type: ignore
+import redis
 from prometheus_client import Histogram
 
 from .exporter import Exporter
