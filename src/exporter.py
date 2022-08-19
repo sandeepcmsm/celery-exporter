@@ -220,7 +220,7 @@ class Exporter:  # pylint: disable=too-many-instance-attributes,too-many-branche
         broker_url = click_params["broker_url"]
         self.app = Celery(broker=broker_url)
         uri = urlparse(broker_url)
-        self.redis_client = redis.Redis(host=uri.hostname, port=uri.port, password=uri.password, db=15,
+        self.redis_client = redis.Redis(host=uri.hostname, port=uri.port, password=uri.password, db=0,
                                         decode_responses=True)
         transport_options = {}
         for transport_option in click_params["broker_transport_option"]:
